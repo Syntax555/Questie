@@ -1,3 +1,18 @@
+## mod-playerbots-portable fork
+
+This fork carries what [mod-playerbots-portable](https://github.com/Syntax555/mod-playerbots-portable) needs on top of [Aldori15/Questie](https://github.com/Aldori15/Questie). Work happens on `335`; every push publishes `Questie-335-latest.zip` in the [Latest release](https://github.com/Syntax555/Questie/releases/latest).
+
+The ZIP holds an installer, not the addon: extract it outside your WoW folder, close WoW and run `Install-Questie.cmd`. It downloads exactly that commit from GitHub, checks every file of `Questie-335` against SHA-256 hashes and installs it; an existing folder is backed up and SavedVariables are kept. Enable Questie in the character selection screen. Enable **Show party quest objectives** in Questie to display other group members' quest markers.
+
+Changes on `335`:
+
+- Shows the quest objectives and progress of group Playerbots, read from the server's MultiBot Bridge, like those of other Questie players.
+- Declares the Questie key binding header once.
+
+The server pins a tested commit of `335` in its `versions.lock.json`; see its [integration guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/docs/questie-playerbots.md). Upstream updates are merged into `335`; the original README follows.
+
+---
+
 # Questie-335
 This is the actively maintained successor to the [widxwer/Questie:335](https://github.com/widxwer/Questie/tree/335) fork, tracking true 3.3.5a (AzerothCore) compatibility.  This means that Questie's data should be a 1:1 match of what is seen on AzerothCore.  If you play on a server that has custom quest data or a server that is not Acore-driven, you may see anomalies and I cannot guarantee data to be a perfect match there.  Since I play using a local Acore server, my fork is driven by that.
 
