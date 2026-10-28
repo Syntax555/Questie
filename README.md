@@ -31,15 +31,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Questie.ps1 -AddOn
 
 ## mod-playerbots-portable fork
 
-Upstream Questie-335 provides the Playerbots quest-progress integration and
-Questie's key binding header. This fork retains two additions: discovery and
-cleanup reuse the connected group roster, excluding your own character, and
-every applied bot snapshot must match that group member's current GUID.
+Upstream Questie-335 provides the Playerbots quest-progress integration,
+connected group discovery, character GUID validation and Questie's key binding
+header. This fork packages that native implementation for Playerbots Portable.
 
 Use the matching [Playerbots Portable server](https://github.com/Syntax555/mod-playerbots-portable/releases/latest),
-which includes the MultiBot Bridge. This fork requires a valid GUID in the
-bridge's quest snapshot; older bridges that omit it do not supply bot progress.
-No additional module, compiler or server setting is required. MultiBot is
+which includes the MultiBot Bridge. Its snapshots include the bot's GUID, which
+must match the current group member. Native compatibility with older bridges
+that omit GUIDs is retained; explicitly malformed or mismatched GUIDs are
+rejected. No additional module, compiler or server setting is required. MultiBot is
 optional for controls; the separate `mod-questie-bridge` is not required for bot
 quest progress.
 
@@ -74,8 +74,8 @@ installed revision, client build, reproduction and complete first Lua error
 Based on [Aldori15/Questie](https://github.com/Aldori15/Questie/tree/335),
 continuing widxwer's 3.3.5a port of the original Questie team's addon. The last
 imported upstream revision is
-[`30222ccb0821`](https://github.com/Aldori15/Questie/commit/30222ccb0821e6d8cdd8fe8d24334b5f9846bca7);
-its [README](https://github.com/Aldori15/Questie/blob/30222ccb0821e6d8cdd8fe8d24334b5f9846bca7/README.md)
+[`4c7df0caf0c8`](https://github.com/Aldori15/Questie/commit/4c7df0caf0c86ddacf8ae31cb7489189c6d811ce);
+its [README](https://github.com/Aldori15/Questie/blob/4c7df0caf0c86ddacf8ae31cb7489189c6d811ce/README.md)
 describes the general Questie features and optional upstream server bridge.
 
 There is no general root license declaration for Questie at this revision.
