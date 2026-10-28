@@ -1,124 +1,87 @@
+# Questie-335 for Playerbots Portable
+
+Quest maps, tooltips and tracking for **WoW 3.3.5a, build 12340**
+(Interface `30300`), with group bot quest progress for
+[Playerbots Portable](https://github.com/Syntax555/mod-playerbots-portable).
+This maintained fork uses the `335` branch.
+
+## Install or update
+
+1. Download [Questie-335-latest.zip](https://github.com/Syntax555/Questie/releases/latest/download/Questie-335-latest.zip)
+   from this fork's [Latest release](https://github.com/Syntax555/Questie/releases/latest).
+2. Extract it to a writable folder outside WoW, then close WoW completely.
+3. Run `Install-Questie.cmd` and select your client's `Interface\AddOns` folder.
+   Internet access and Windows PowerShell 5.1 or later are required; no
+   administrator rights are needed.
+4. Start WoW and enable Questie-335. Open settings with `/questie`; enable
+   **Show party quest objectives** for markers from other party members' quests.
+
+The ZIP contains an **installer, not the addon**. It downloads its exact fork
+commit from GitHub, verifies every addon file against SHA-256 hashes and
+installs `Interface/AddOns/Questie-335/Questie-335.toc`. It backs up an existing
+`Questie-335` folder and preserves account and character SavedVariables in
+`WTF/`. Use the same steps for updates; do not mix files or nest another folder.
+The installed `SOURCE_REVISION.txt` and `SOURCE_MANIFEST.json` identify the source.
+
+For a noninteractive installation, run this in the extracted installer folder:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Questie.ps1 -AddOnsPath 'C:\Games\WoW\Interface\AddOns'
+```
+
 ## mod-playerbots-portable fork
 
-This fork carries what [mod-playerbots-portable](https://github.com/Syntax555/mod-playerbots-portable) needs on top of [Aldori15/Questie](https://github.com/Aldori15/Questie). Work happens on `335`; every push publishes `Questie-335-latest.zip` in the [Latest release](https://github.com/Syntax555/Questie/releases/latest).
+Upstream Questie-335 provides the Playerbots quest-progress integration and
+Questie's key binding header. This fork retains two additions: discovery and
+cleanup reuse the connected group roster, excluding your own character, and
+every applied bot snapshot must match that group member's current GUID.
 
-The ZIP holds an installer, not the addon: extract it outside your WoW folder, close WoW and run `Install-Questie.cmd`. It downloads exactly that commit from GitHub, checks every file of `Questie-335` against SHA-256 hashes and installs it; an existing folder is backed up and SavedVariables are kept. Enable Questie in the character selection screen. Enable **Show party quest objectives** in Questie to display other group members' quest markers.
+Use the matching [Playerbots Portable server](https://github.com/Syntax555/mod-playerbots-portable/releases/latest),
+which includes the MultiBot Bridge. This fork requires a valid GUID in the
+bridge's quest snapshot; older bridges that omit it do not supply bot progress.
+No additional module, compiler or server setting is required. MultiBot is
+optional for controls; the separate `mod-questie-bridge` is not required for bot
+quest progress.
 
-Upstream provides group Playerbots quest progress and a single Questie key binding header. This fork requests bot updates only for connected group members, excluding your own character. Each update must match the watched character's current identity.
+Invite bots normally. Discovery, snapshots and updates start automatically,
+including after `/reload`. Questie shows each authorized group bot's own active
+quest counters in its existing tooltips and party objectives. Real players
+continue to use ordinary QuestieComms. The tracker remains your own quest log;
+party-only objective markers support groups of at most five.
 
-The server pins a tested commit of `335` in its `versions.lock.json`; see its [integration guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/docs/questie-playerbots.md). Upstream updates are merged into `335`; the original README follows.
+Questie's AzerothCore database can differ from Individual Progression or custom
+quest data. Unknown objectives cannot supply map locations absent from that
+database. Source fixtures and installer checks do not establish complete live
+client coverage: objective pins, tooltips, turn-in, abandonment and departure
+cleanup still need in-game validation. See the
+[integration guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/docs/questie-playerbots.md).
 
----
+## Source and contributions
 
-# Questie-335
-This is the actively maintained successor to the [widxwer/Questie:335](https://github.com/widxwer/Questie/tree/335) fork, tracking true 3.3.5a (AzerothCore) compatibility.  This means that Questie's data should be a 1:1 match of what is seen on AzerothCore.  If you play on a server that has custom quest data or a server that is not Acore-driven, you may see anomalies and I cannot guarantee data to be a perfect match there.  Since I play using a local Acore server, my fork is driven by that.
+Changes belong on this fork's `335` branch. Its
+[Latest workflow](https://github.com/Syntax555/Questie/blob/335/.github/workflows/latest.yml)
+checks Lua syntax and installation before publishing the rolling installer.
+The server's [manifest](https://github.com/Syntax555/mod-playerbots-portable/blob/main/versions.lock.json)
+pins its tested fork commit; Latest may be newer. Follow the
+[contributing guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/CONTRIBUTING.md)
+for source updates and checks. Report fork integration problems in
+[this issue tracker](https://github.com/Syntax555/Questie/issues), with the
+installed revision, client build, reproduction and complete first Lua error
+(`/console scriptErrors 1`).
 
-All 16 open issues from the archived widxwer repo have been resolved, and this fork remains ahead with ongoing backports from the upstream Questie master branch, along with additional features, fixes and refactors.
+## Provenance and notices
 
-A fork of the WoW Classic Questie addon aiming to provide compatibility with Wrath of the Lich King client version 3.3.5a (12340).
+Based on [Aldori15/Questie](https://github.com/Aldori15/Questie/tree/335),
+continuing widxwer's 3.3.5a port of the original Questie team's addon. The last
+imported upstream revision is
+[`30222ccb0821`](https://github.com/Aldori15/Questie/commit/30222ccb0821e6d8cdd8fe8d24334b5f9846bca7);
+its [README](https://github.com/Aldori15/Questie/blob/30222ccb0821e6d8cdd8fe8d24334b5f9846bca7/README.md)
+describes the general Questie features and optional upstream server bridge.
 
-> [!IMPORTANT]
-> **Warmane users:** Questie **v9.6.5 or newer** is required for party quest progress sharing. Version 9.6.5 includes a [Warmane addon communication compatibility fix](https://github.com/Aldori15/Questie/commit/1735a56). All members on Warmane using Questie should update, because older versions cannot exchange quest progress data correctly on Warmane.  More info in Issues [#101](https://github.com/Aldori15/Questie/issues/101) and [#103](https://github.com/Aldori15/Questie/issues/103).
-
-# Installation
-- [Download](https://github.com/Aldori15/Questie/archive/refs/heads/335.zip) the archive.
-- Extract it into `Interface/AddOns/` directory, folder name should be `Questie-335`.
-
-## Optional AzerothCore Server Bridge Module
-
-Install [mod-questie-bridge](https://github.com/Aldori15/mod-questie-bridge) on your AzerothCore
-server to let Questie follow live server state:
-
-- Holidays, fishing tournaments, Scourge Invasion, and Isle of Quel'Danas unlocks.
-- Selected daily/weekly quest pools, ICC weekly quests, and Wintergrasp control.
-- Weekly/monthly quest resets and live XP, reputation, and money rates.
-- Moving questgiver markers in your current zone, including Orgrim's Hammer and the Skybreaker.
-- Phase-dependent locations in supported story areas, including Icecrown, Storm Peaks, and the death knight start.
-- World Progress in related Journey quest details and tooltips.
-
-See the [module setup instructions](https://github.com/Aldori15/mod-questie-bridge#installation).
-Install matching addon and module builds, then log in or `/reload`. Run `/qserver` to check the connection;
-`/qserver xp`, `/qserver rep [faction ID]`, and `/qserver money` show reward rates.
-The module README lists the other diagnostic commands.
-
-Server rate changes appear within a few seconds; rehover or reopen the reward display to refresh it.
-Rewards are estimates: server rounding, caps, or custom rules can affect the final amount awarded.
-Moving markers work in your current zone; other zones keep their static locations and patrol lines.
-Phase filtering applies within your current subarea. Quest prerequisites and your visibility settings still apply.
-
-Enable **Available Scourge Invasion Quests** or **Available Sun's Reach Quests** to show those quest sets.
-The bridge is optional. Missing, disabled, or expired server information restores Questie's usual behavior.
-
-## Questie Information
-- [Frequently Asked Questions](https://github.com/Questie/Questie/wiki/FAQ)
-- Come chat with us on [our Discord server](https://discord.gg/s33MAYKeZd).
-- You can use the [issue tracker](https://github.com/Aldori15/Questie/issues) to report bugs and post feature requests (requires a Github account).
-- If you get an error message from the WoW client, please include the **complete** text or a screenshot of it in your report.
-    - You need to enter `/console scriptErrors 1` once in the ingame chat for Lua error messages to be shown. You can later disable them again with `/console scriptErrors 0`.
-
-Trust us it's (Good)!
-
-# Features
-
-### Show quests on map
-- Show notes for quest start points, turn in points, and objectives.
-
-![Questie Quest Givers](https://i.imgur.com/4abi5yu.png)
-![Questie Complete](https://i.imgur.com/DgvBHyh.png)
-![Questie Tooltip](https://i.imgur.com/uPykHKC.png)
-
-### Quest Tracker
-- Improved quest tracker:
-    - Automatically tracks quests on accepting
-    - Can show all 20 quests from the log (instead of default 5)
-    - Left click quest to open quest log (configurable)
-    - Right-click for more options, e.g.:
-        - Focus quest (makes other quest icons translucent)
-        - Point arrow towards objective (requires TomTom addon)
-
-![QuestieTracker](https://user-images.githubusercontent.com/8838573/67285596-24dbab00-f4d8-11e9-9ae1-7dd6206b5e48.png)
-
-### Quest Communication
-- You can see party members quest progress on the tooltip.
-- You can announce objective progress, objective complete, quest complete, quest accept, quest abandon to chat.
-
-<img width="483" height="281" alt="image" src="https://github.com/user-attachments/assets/bed0522f-31e8-4ca1-a9fe-0927a12599df" />
-
-### Tooltips
-- Show tooltips on map notes and quest NPCs/objects.
-- Holding Shift while hovering over a map icon displays more information, like quest XP.
-- Show quest names on the tooltip of items that begin a quest.
-
-<img width="707" height="160" alt="image" src="https://github.com/user-attachments/assets/d85698ba-7fdb-428c-a876-02cb8cc698f9" />
-
-<img width="447" height="365" alt="image" src="https://github.com/user-attachments/assets/df379e3b-682c-404d-a966-c5b88d5856bf" />
-
-#### Waypoints
-
-- Waypoint lines for quest givers showing their pathing.
-- With the TomTom addon, you can shift+left click an icon on the map to place a waypoint and navigate.
-
-<img width="853" height="495" alt="image" src="https://github.com/user-attachments/assets/380aa249-927b-4132-aa54-3b267bbd0a2f" />
-
-<img width="202" height="166" alt="image" src="https://github.com/user-attachments/assets/a44a1b5e-9bd0-49ae-9e27-b932050bd9f3" />
-
-### Journey Log
-- Questie records the steps of your journey in the "My Journey" window. (left-click on minimap button and select the "My Journey" tab or type `/questie journey`)
-
-![Journey](https://user-images.githubusercontent.com/8838573/67285651-3cb32f00-f4d8-11e9-95d8-e8ceb2a8d871.png)
-
-### Quests by Zone
-- Questie lists all the quests of a zone divided between completed and available quest. Gotta complete 'em all. (left-click on minimap button (or type `/questie journey`) and select the "Quests by Zone" tab
-
-![QuestsByZone](https://user-images.githubusercontent.com/8838573/67285665-450b6a00-f4d8-11e9-9283-325d26c7c70d.png)
-
-### Quests by Faction
-- Similarly to Quests by Zone, Questie lists all the quests of a faction divided between completed and available quest. Gotta complete 'em all. (left-click on minimap button (or type `/questie journey`) and select the "Quests by Faction" tab
-
-### Search
-- Questie's database can be searched. (left-click on minimap button (or type `/questie journey`) and select the "Advanced Search" tab
-
-![Search](https://user-images.githubusercontent.com/8838573/67285691-4f2d6880-f4d8-11e9-8656-b3e37dce2f05.png)
-
-### Configuration
-- Extensive configuration options. (right-click on minimap button to open or type `/questie`)
+There is no general root license declaration for Questie at this revision.
+Libraries retain their [own notices](https://github.com/Syntax555/Questie/blob/335/Libs/LICENSE.txt);
+[icon terms](https://github.com/Syntax555/Questie/blob/335/Icons/LICENSE.md)
+cover some icons from shagu/pfQuest and identify the remaining uncertainty.
+Preserve file and component notices. The installer's
+[MIT license](https://github.com/Syntax555/Questie/blob/335/.github/installer/LICENSE)
+covers its tooling only; the installer ZIP contains no addon files.
