@@ -4,10 +4,7 @@ This fork carries what [mod-playerbots-portable](https://github.com/Syntax555/mo
 
 The ZIP holds an installer, not the addon: extract it outside your WoW folder, close WoW and run `Install-Questie.cmd`. It downloads exactly that commit from GitHub, checks every file of `Questie-335` against SHA-256 hashes and installs it; an existing folder is backed up and SavedVariables are kept. Enable Questie in the character selection screen. Enable **Show party quest objectives** in Questie to display other group members' quest markers.
 
-Changes on `335`:
-
-- Shows the quest objectives and progress of group Playerbots, read from the server's MultiBot Bridge, like those of other Questie players.
-- Declares the Questie key binding header once.
+Upstream provides group Playerbots quest progress and a single Questie key binding header. This fork requests bot updates only for connected group members, excluding your own character.
 
 The server pins a tested commit of `335` in its `versions.lock.json`; see its [integration guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/docs/questie-playerbots.md). Upstream updates are merged into `335`; the original README follows.
 
