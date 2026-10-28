@@ -137,6 +137,18 @@ local function NormalizeName(name)
     return name:gsub("%-.*$", "")
 end
 
+local function NormalizeGuid(guid)
+    if type(guid) ~= "string" then
+        return nil
+    end
+
+    -- AzerothCore sends ObjectGuid::ToString; the client exposes the raw hex GUID.
+    guid = guid:match("^GUID Full: (0x%x+) Type: Player Low: %d+$") or guid
+    if #guid == 18 and guid:match("^0x%x+$") then
+        return guid:lower()
+    end
+end
+
 local function RequestBotQuestProgress(botName)
     if retryAfter[botName] and GetTime() < retryAfter[botName] then
         return
@@ -176,20 +188,20 @@ local function GetCurrentGroupMembers()
         for i = 1, GetNumRaidMembers() do
             local name = NormalizeName(UnitName("raid" .. i))
             if name and UnitIsConnected("raid" .. i) then
-                members[name] = true
+                members[name] = NormalizeGuid(UnitGUID("raid" .. i))
             end
         end
     else
         local playerName = NormalizeName(UnitName("player"))
         if playerName then
-            members[playerName] = true
+            members[playerName] = NormalizeGuid(UnitGUID("player"))
         end
 
         if GetNumPartyMembers then
             for i = 1, GetNumPartyMembers() do
                 local name = NormalizeName(UnitName("party" .. i))
                 if name and UnitIsConnected("party" .. i) then
-                    members[name] = true
+                    members[name] = NormalizeGuid(UnitGUID("party" .. i))
                 end
             end
         end
@@ -542,6 +554,7 @@ local function HandleBridgeMessage(message, sender)
 
         progressSnapshots[token] = {
             botName = botName,
+            guid = NormalizeGuid(UrlDecode(fields[4])),
             quests = {},
             questCount = 0,
             expiresAt = GetTime() + REQUEST_TIMEOUT,
@@ -627,7 +640,8 @@ local function HandleBridgeMessage(message, sender)
             retryAfter[botName] = GetTime() + WATCH_REFRESH_INTERVAL
             return
         end
-        if snapshot and request and snapshot.botName == botName and GetTime() < snapshot.expiresAt then
+        if snapshot and request and snapshot.botName == botName and GetTime() < snapshot.expiresAt
+            and snapshot.guid and snapshot.guid == GetCurrentGroupMembers()[botName] then
             if not ApplyProgressSnapshot(snapshot) then
                 return
             end
