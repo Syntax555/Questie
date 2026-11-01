@@ -56,6 +56,12 @@ client coverage: objective pins, tooltips, turn-in, abandonment and departure
 cleanup still need in-game validation. See the
 [integration guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/docs/questie-playerbots.md).
 
+The server-state integration requires matching protocol 19 addon and Questie
+Bridge builds. `/qserver` reports mismatched versions and restores static
+behavior. Global questgiver-template restrictions apply on remote maps;
+observed live spawn state takes precedence locally. Restricted questgivers do
+not hide daily or weekly quests offered by other starters.
+
 ## Source and contributions
 
 Changes belong on this fork's `335` branch. Its
@@ -74,8 +80,8 @@ installed revision, client build, reproduction and complete first Lua error
 Based on [Aldori15/Questie](https://github.com/Aldori15/Questie/tree/335),
 continuing widxwer's 3.3.5a port of the original Questie team's addon. The last
 imported upstream revision is
-[`4c7df0caf0c8`](https://github.com/Aldori15/Questie/commit/4c7df0caf0c86ddacf8ae31cb7489189c6d811ce);
-its [README](https://github.com/Aldori15/Questie/blob/4c7df0caf0c86ddacf8ae31cb7489189c6d811ce/README.md)
+[`f1b5c606f582`](https://github.com/Aldori15/Questie/commit/f1b5c606f582c7e588646fde8894919c68eedac5);
+its [README](https://github.com/Aldori15/Questie/blob/f1b5c606f582c7e588646fde8894919c68eedac5/README.md)
 describes the general Questie features and optional upstream server bridge.
 
 There is no general root license declaration for Questie at this revision.
