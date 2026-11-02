@@ -1,18 +1,20 @@
-import unittest
 import os
 import re
+import unittest
 from collections import defaultdict
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 from _test_paths import ADDON_ROOT
 
-from questie_base import base_text
+# isort: split
+
 import generate_acore_item_corrections as item_generator
 import generate_acore_npc_corrections as npc_generator
 import generate_acore_object_corrections as object_generator
 import validate_acore_quest_metadata as quest_validator
 import validate_wdm_map_data as wdm_validator
+from questie_base import base_text
 
 
 class AcoreCorrectionRegressionTests(unittest.TestCase):
@@ -152,17 +154,17 @@ const WintergraspObjectPositionData WGOutsideNPC[WG_MAX_OUTSIDE_NPC] = {
         )))
         server_caps = re.findall(r'\{"([A-Z]+)", (\d+)\}', protocol_text)
         client_caps = re.findall(r'\[(\d+)\] = "([A-Z]+)"',
-                                re.search(r"local CAPABILITIES = \{(.*?)\}", client_text, re.S).group(1))
+                                re.search(r"local CAPABILITIES = \{(.*?)\}", client_text, re.DOTALL).group(1))
         self.assertEqual(len(server_caps), len(expected_caps), "duplicate or missing server assignments")
         self.assertEqual(len(client_caps), len(expected_caps), "duplicate or missing client assignments")
         self.assertEqual({int(bit): name for name, bit in server_caps}, expected_caps)
         self.assertEqual({int(bit): name for bit, name in client_caps}, expected_caps)
         zones, areas, masks = npc_generator.load_server_phase_profiles()
         for name, profiles in (("PhaseZones", zones), ("PhaseAreas", areas)):
-            body = re.search(rf"{name}\[\]\[2\]\s*=\s*\{{(.*?)\}};", text, re.S).group(1)
+            body = re.search(rf"{name}\[\]\[2\]\s*=\s*\{{(.*?)\}};", text, re.DOTALL).group(1)
             pairs = {(int(map_id), int(region)) for map_id, region in re.findall(r"\{(\d+),\s*(\d+)\}", body)}
             self.assertEqual({(map_id, region) for map_id, regions in profiles.items() for region in regions}, pairs)
-        body = re.search(r"PhaseMasks\[\]\s*=\s*\{(.*?)\};", text, re.S).group(1)
+        body = re.search(r"PhaseMasks\[\]\s*=\s*\{(.*?)\};", text, re.DOTALL).group(1)
         self.assertEqual(masks, [int(value) for value in re.findall(r"\d+", body)])
         self.assertEqual(len(masks), len(set(masks)))
 
