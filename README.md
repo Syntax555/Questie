@@ -90,5 +90,5 @@ Libraries retain their [own notices](https://github.com/Syntax555/Questie/blob/3
 [icon terms](https://github.com/Syntax555/Questie/blob/335/Icons/LICENSE.md)
 cover some icons from shagu/pfQuest and identify the remaining uncertainty.
 Preserve file and component notices. The installer's
-[MIT license](https://github.com/Syntax555/Questie/blob/335/.github/installer/LICENSE)
+[MIT license](https://github.com/Syntax555/mod-playerbots-portable/blob/main/scripts/addon-installer/LICENSE)
 covers its tooling only; the installer ZIP contains no addon files.
