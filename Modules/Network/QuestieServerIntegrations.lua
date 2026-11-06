@@ -5,22 +5,39 @@ local Event = QuestieLoader:ImportModule("QuestieEvent")
 local Blacklist = QuestieLoader:ImportModule("QuestieQuestBlacklist")
 
 local previousQuestStateKey = "unknown"
-local previousQuestgiverStateKey = "unknown"
+local previousQuestgiverStateKeys = {}
 local previousSpawnStateKey = "unknown"
 local previousPhaseStateKey = "unknown"
+local previousPhaseState
 
 local function RefreshPhaseSpawns()
     local key = Server:GetPhaseVisibilityKey()
     if key == previousPhaseStateKey then return false end
     previousPhaseStateKey = key
+    local previous = previousPhaseState
+    local current = Server.GetPhaseVisibilityState and Server:GetPhaseVisibilityState()
+    previousPhaseState = current
+    local changed = false
     if Questie.started then
-        QuestieLoader:ImportModule("AvailableQuests").InvalidateSpawnVisibility()
+        local phasing = QuestieLoader:ImportModule("Phasing")
+        local visibilityChanges = {}
+        local function affected(spawns)
+            if not spawns then return false end
+            local result = visibilityChanges[spawns]
+            if result == nil then
+                result = phasing.HasSpawnVisibilityChanges(spawns, previous, current)
+                visibilityChanges[spawns] = result
+            end
+            if result then changed = true end
+            return result
+        end
+        QuestieLoader:ImportModule("AvailableQuests").InvalidateSpawnVisibility(affected)
         local map = QuestieLoader:ImportModule("QuestieMap")
-        map:RefreshDynamicStarterLocations()
-        map:RefreshDynamicManualNotes()
-        QuestieLoader:ImportModule("QuestieQuest"):RefreshSpawnVisibility()
+        map:RefreshDynamicStarterLocations(affected)
+        map:RefreshDynamicManualNotes(affected)
+        QuestieLoader:ImportModule("QuestieQuest"):RefreshSpawnVisibility(affected)
     end
-    return true
+    return changed
 end
 
 local function RefreshWintergraspSpawns()
@@ -42,23 +59,23 @@ local function RefreshQuestgivers()
     local available = QuestieLoader:ImportModule("AvailableQuests")
     local changed = Questie.started and available.PruneRestrictedQuestgiverObservations
         and available.PruneRestrictedQuestgiverObservations() or false
-    local key = Server:GetQuestgiverStateKey()
-    if key == previousQuestgiverStateKey then return changed end
-    previousQuestgiverStateKey = key
+    local keys, changedNpcs = Server:GetQuestgiverStateKeys(), {}
+    for npcId, key in pairs(keys) do
+        if key ~= previousQuestgiverStateKeys[npcId] then changedNpcs[npcId] = true end
+    end
+    for npcId in pairs(previousQuestgiverStateKeys) do
+        if not keys[npcId] then changedNpcs[npcId] = true end
+    end
+    previousQuestgiverStateKeys = keys
+    if not next(changedNpcs) then return changed end
     if Questie.started then
-        available.InvalidateQuestgiverAvailability()
+        return available.InvalidateQuestgiverAvailability(changedNpcs) or changed
     end
     return true
 end
 
 local function RefreshQuestStates()
-    local ids = Server:GetStateControlledQuests()
-    local parts = {}
-    for _, id in ipairs(ids or {}) do
-        parts[#parts + 1] = id .. ":" .. tostring(Server:GetQuestPoolId(id))
-            .. ":" .. tostring(Server:GetQuestAvailabilityState(id))
-    end
-    local key = ids and table.concat(parts, ";") or "unknown"
+    local key = Server:GetQuestStateKey()
     local changed = key ~= previousQuestStateKey
     previousQuestStateKey = key
     return changed
@@ -125,11 +142,11 @@ local function FishingState(states)
     end
 end
 
-local function DarkmoonState(states, registrations)
+local function DarkmoonState(states, registrations, holidayActive)
     local locations = {{375, 1}, {374, 2}, {376, 3}}
     local activeLocations = {}
     for _, pair in ipairs(locations) do
-        local active = Server:IsHolidayActive(pair[1])
+        local active = holidayActive(pair[1])
         if active == nil then return nil end
         if active then activeLocations[#activeLocations + 1] = pair[2] end
     end
@@ -138,7 +155,7 @@ local function DarkmoonState(states, registrations)
             states[id] = #activeLocations > 0
         end
     end
-    states[7905], states[7926] = Server:IsHolidayActive(374), Server:IsHolidayActive(375)
+    states[7905], states[7926] = holidayActive(374), holidayActive(375)
     return activeLocations
 end
 
@@ -153,14 +170,23 @@ function Integrations:Refresh()
     local profile = Questie.db.profile
     local locations
     if profile.showEventQuests then
+        local holidayStates = {}
+        local function holidayActive(id)
+            local cached = holidayStates[id]
+            if not cached then
+                cached = {Server:IsHolidayActive(id)}
+                holidayStates[id] = cached
+            end
+            return cached[1]
+        end
         for id, registration in pairs(registrations) do
             local holiday = holidays[registration.name]
             if holiday and Event.IsQuestVisibleForExpansion(registration.expansion) then
-                states[id] = Server:IsHolidayActive(holiday)
+                states[id] = holidayActive(holiday)
             end
         end
         FishingState(states)
-        locations = DarkmoonState(states, registrations)
+        locations = DarkmoonState(states, registrations, holidayActive)
     end
     local scourge = Server:IsScourgeInvasionActive()
     if profile.showScourgeInvasionQuests and scourge ~= nil then

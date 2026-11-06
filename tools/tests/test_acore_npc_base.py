@@ -234,6 +234,63 @@ class NpcBaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "NPC 1 spawns: New unmapped.*101"):
             exporter.build_records(source, manifest, provenance)
 
+    def test_transport_geometry_recovers_reviewed_gaps_with_world_spawn_identity(self):
+        reader = audit.reader
+        passenger = {"guid": 99, "id1": 1, "map": 8765, "position_x": 2,
+                     "position_y": 3, "position_z": 4, "orientation": 0,
+                     "spawnMask": 1, "phaseMask": 1, "zoneId": 999, "areaId": 998}
+        keyed = {"creature_template": {i: {"name": "NPC", "minlevel": 1, "maxlevel": 1} for i in (1, 2, 3, 4)}}
+        rows = {"creature": [passenger, dict(passenger, guid=100, id1=3),
+                             dict(passenger, guid=101, id1=4, position_x=3, position_y=4)],
+                "creature_queststarter": [{"id": i, "quest": 1000} for i in (1, 2)],
+                "creature_questender": [{"id": 4, "quest": 1000}]}
+        templates = [{"entry": 987654, "type": 15, "Data0": 4321, "Data6": 8765}]
+        nodes = [dict(id=index + 1, path=4321, index=index, map=571, x=x, y=50, z=10, flags=0)
+                 for index, x in enumerate((0, 10, 20, 30))]
+
+        def project(row, maps):
+            return (210, [row["position_x"], row["position_y"]]) if row["map"] == 571 else (None, None)
+
+        with patch.object(reader, "find_map_difficulty_dbc", return_value=Path("unused.dbc")), \
+             patch.object(reader, "load_map_difficulty_masks", return_value={571: 1}), \
+             patch.object(reader, "load_keyed_table", side_effect=lambda root, table, *args: (keyed.get(table, {}), 0)), \
+             patch.object(reader, "load_row_table", side_effect=lambda root, table, *args: (rows.get(table, []), 0)), \
+             patch.object(reader, "load_creature_multispawn_rows", return_value=([{"spawnId": 99, "entry": 2}], 0)), \
+             patch.object(reader, "load_filtered_row_table", return_value=([], 0)), \
+             patch.object(reader, "load_server_phase_profiles", return_value=({}, {}, {})), \
+             patch.object(reader, "parse_zone_maps", return_value={}), \
+             patch.object(reader, "resolve_coordinate_zone", side_effect=project), \
+             patch.object(reader, "resolve_transport_coordinate_zone", side_effect=project), \
+             patch.object(reader, "load_wintergrasp_scripted_spawns", return_value={}):
+            provenance = {}
+            records, _ = reader.build_acore_npcs(ADDON_ROOT, provenance=provenance,
+                                                transport_templates=templates, taxi_nodes=nodes)
+            unsupported, _ = reader.build_acore_npcs(ADDON_ROOT, transport_templates=templates,
+                                                    taxi_nodes=[dict(node, flags=1) for node in nodes])
+        self.assertEqual(passenger["map"], 8765)
+        self.assertEqual(records[3]["spawns"][210][0][:2], [8, 47])
+        self.assertEqual(records[3].get("waypoints", {}), {})
+        self.assertEqual(records[1]["waypoints"], records[4]["waypoints"])
+        self.assertNotEqual(records[1]["spawns"][210][0][:2], records[4]["spawns"][210][0][:2])
+        source = {i: {"s:" + field: audit.typed(value) for field, value in row.items()} for i, row in records.items()}
+        before = {i: {**row, "s:spawns": {}, "s:waypoints": {}, "s:zoneID": 0} for i, row in source.items()}
+        manifest = exporter.upgrade_manifest(bootstrap(before, source), source, provenance)
+        for entry in (1, 2, 4):
+            guid = 101 if entry == 4 else 99
+            self.assertNotIn("spawns", unsupported[entry])
+            point = records[entry]["spawns"][210][0]
+            self.assertEqual(point[:2], [7, 46] if entry == 4 else [8, 47])
+            if entry != 4:
+                self.assertEqual((point[4], point[7]), (571, guid))
+            self.assertEqual(records[entry]["zoneID"], 210)
+            self.assertEqual(len(records[entry]["waypoints"][210][0]), 9)
+            manifest["geometry"][str(entry)]["spawns"] = {"slots": {}, "reviewedUnmappedGuids": [guid]}
+            manifest["geometry"][str(entry)]["waypoints"] = {"slots": {}}
+        result = exporter.build_records(source, manifest, provenance)
+        for entry in (1, 2, 4):
+            self.assertEqual(result[entry]["s:spawns"], source[entry]["s:spawns"])
+            self.assertEqual(result[entry]["s:waypoints"], source[entry]["s:waypoints"])
+
     def test_scripted_placements_refresh_preserve_phase_and_drop_parent_identity(self):
         points = audit.typed({12: [[1, 2, 0, 1, 0, 4, 12, 98765]]})
         source = {6492: npc(spawns=points), 32823: npc(spawns=points)}
@@ -501,6 +558,41 @@ class NpcBaseTests(unittest.TestCase):
         del manifest["geometry"]["1"]["waypoints"]
         self.assertEqual(exporter.build_records(moved, manifest, origins), moved)
         self.assertEqual(exporter.build_records(removed, manifest, {}), removed)
+
+    def test_quest_escort_paths_are_not_idle_patrols_and_keep_independent_ambient_paths(self):
+        reader = audit.reader
+        creature = {"guid": 99, "id1": 1, "map": 571, "position_x": 10, "position_y": 20}
+        keyed = {"creature_template": {1: {"name": "Escort", "minlevel": 1, "maxlevel": 1}},
+                 "creature_addon": {99: {"path_id": 88}}}
+        rows = {"creature": [creature], "creature_queststarter": [{"id": 1, "quest": 13229}],
+                "waypoint_data": [{"id": 88, "point": 1, "position_x": 10, "position_y": 20},
+                                  {"id": 88, "point": 2, "position_x": 30, "position_y": 40}],
+                "waypoints": [{"entry": 77, "pointid": 1, "position_x": 50, "position_y": 60},
+                              {"entry": 77, "pointid": 2, "position_x": 70, "position_y": 80}]}
+        smart = [{"source_type": 0, "entryorguid": 1, "id": 0, "event_type": 19,
+                  "event_param1": 13229, "action_type": 53, "action_param2": 77, "action_param4": 13229}]
+        with patch.object(reader, "find_map_difficulty_dbc", return_value=Path("unused.dbc")), \
+             patch.object(reader, "load_map_difficulty_masks", return_value={571: 1}), \
+             patch.object(reader, "load_keyed_table", side_effect=lambda root, table, *args: (keyed.get(table, {}), 0)), \
+             patch.object(reader, "load_row_table", side_effect=lambda root, table, *args: (rows.get(table, []), 0)), \
+             patch.object(reader, "load_creature_multispawn_rows", return_value=([], 0)), \
+             patch.object(reader, "load_filtered_row_table", return_value=(smart, 0)), \
+             patch.object(reader, "parse_zone_maps", return_value={}), \
+             patch.object(reader, "resolve_coordinate_zone", side_effect=lambda row, maps:
+                          (210, [row["position_x"], row["position_y"]])), \
+             patch.object(reader, "load_wintergrasp_scripted_spawns", return_value={}):
+            npc = reader.build_acore_npcs(ADDON_ROOT)[0][1]
+            self.assertEqual(npc["waypoints"], {210: [[[10, 20], [30, 40]]]})
+            self.assertEqual(npc["questStarts"], [13229])
+            self.assertEqual(npc["spawns"][210][0][:2], [10, 20])
+            smart[0]["action_param4"] = 0
+            self.assertEqual(reader.build_acore_npcs(ADDON_ROOT)[0][1]["waypoints"], npc["waypoints"])
+            smart[0]["event_type"] = 20
+            self.assertEqual(reader.build_acore_npcs(ADDON_ROOT)[0][1]["waypoints"], npc["waypoints"])
+            smart.append({"source_type": 0, "entryorguid": 1, "id": 1, "event_type": 11,
+                          "action_type": 53, "action_param2": 77})
+            self.assertEqual(reader.build_acore_npcs(ADDON_ROOT)[0][1]["waypoints"],
+                             {210: [[[10, 20], [30, 40]], [[50, 60], [70, 80]]]})
 
     def test_template_paths_obey_guid_precedence_and_each_multispawn_template(self):
         reader = audit.reader

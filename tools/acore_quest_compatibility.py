@@ -125,6 +125,12 @@ PLAYER_TARGETS = frozenset({7, 16, 17, 18, 21, 23, 27, 201})
 SMART_ESCORT_TARGETS = 0xFFFFFF
 
 
+def is_quest_escort_start(row):
+    """Quest-bound movement is not evidence of an NPC's ordinary patrol."""
+    return int(row.get("action_type") or 0) == 53 and (
+        int(row.get("action_param4") or 0) > 0 or int(row.get("event_type") or 0) in (19, 20, 47))
+
+
 def _valid_escort_start(actor, row, escort_paths):
     # SmartAI::StartPath requires an existing, nonempty Smart waypoint path.
     path = int(row.get("action_param2") or 0)
@@ -439,6 +445,8 @@ def derive_required_tool_items(quest, item_templates, spells, candidate_ids=(), 
 
     Candidates are proposals to verify, never authority. Main objective items are
     excluded from the auxiliary list because the runtime tracks them separately.
+    Ordinary crafting materials only become auxiliary objectives when explicitly
+    provided by the quest or listed as quest drops, not inferred from recipes/text.
     Text evidence uses specific item names, including named ordinal sets, rather
     than generic words such as 'elixir', 'wand' or 'bait'.
     """
@@ -452,6 +460,13 @@ def derive_required_tool_items(quest, item_templates, spells, candidate_ids=(), 
 
     def add(item, rule, **details):
         if item > 0 and item in templates:
+            template = templates[item]
+            # requiredSourceItems are map objectives, not a complete ingredient
+            # list. Keep quest-bound components and explicit quest sources, but
+            # don't map every gathering source for inferred gems/reagents/goods.
+            if (item not in seeds and _number(template, "class") in (3, 5, 7)
+                    and _number(template, "bonding") not in (4, 5)):
+                return
             result.add(item)
             reason = {"rule": rule, **details}
             if reason not in reasons[str(item)]:

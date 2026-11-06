@@ -11,6 +11,21 @@ def loot(item=0, chance=100, group=0, reference=0, **fields):
 
 
 class ItemSourceTests(unittest.TestCase):
+    def test_boiled_blood_display_preserves_engine_provenance_and_uses_visible_cauldron(self):
+        keyed = {"item_template": {30430: {"entry": 30430, "name": "Boiled Blood", "class": 12}},
+                 "quest_template": {10538: {"RequiredItemId1": 30430}},
+                 "gameobject_template": {184722: {"entry": 184722, "type": 6},
+                                          184715: {"entry": 184715, "type": 10, "Data1": 10538}}}
+        packet = {"sources": {"30430": {"objectDrops": [184722]}},
+                  "evidence": [{"itemId": 30430, "sourceId": 184722}], "omissions": []}
+        with patch.object(reader, "load_keyed_table", side_effect=lambda root, table, key, modules=False: (keyed.get(table, {}), 0)), \
+             patch.object(reader, "load_row_table", return_value=([], 0)), \
+             patch("acore_item_spell_acquisitions.collect", return_value=packet):
+            items, _, context = reader.build_acore_items(ADDON_ROOT)
+        self.assertEqual(items[30430]["indirectSources"], {"objectDrops": [184715]})
+        self.assertNotIn("objectDrops", items[30430], "display sites must not become direct loot probabilities")
+        self.assertEqual(context["acquisitionCoverage"]["triggered"]["evidence"][0]["sourceId"], 184722)
+
     def test_retired_correction_command_stops_before_reading_sql(self):
         with patch.object(reader, "build_acore_items") as build_items:
             with self.assertRaises(SystemExit) as result:
@@ -135,6 +150,22 @@ class ItemSourceTests(unittest.TestCase):
             items, _, _ = reader.build_acore_items(ADDON_ROOT)
         self.assertEqual(items[1]["indirectSources"], {"npcDrops": [10]})
         self.assertNotIn("npcDrops", items[1])
+
+    def test_source_model_records_gap_usage_and_keeps_mandatory_diagnostics(self):
+        keyed = {"item_template": {1: {"entry": 1, "name": "Legacy item", "spellid_1": 128}},
+                 "creature_template": {10: {"entry": 10}},
+                 "quest_template": {55: {"ID": 55, "RequiredItemId1": 1}}}
+        tables = {"npc_spellclick_spells": [{"npc_entry": 10, "spell_id": 128}]}
+        with patch.object(reader, "load_keyed_table", side_effect=lambda root, table, key, modules=False: (keyed.get(table, {}), 0)), \
+             patch.object(reader, "load_row_table", side_effect=lambda root, table, keys, modules=False, **kwargs: (tables.get(table, []), 0)), \
+             patch("acore_item_spell_acquisitions.validate_source"):
+            _, _, context = reader.build_acore_items(ADDON_ROOT)
+        coverage = context["spellCoverage"]
+        self.assertEqual(coverage["missingRequestedSpellIdList"], [128])
+        usage = coverage["missingSpellUsage"]["128"]
+        self.assertEqual({row["table"] for row in usage["references"]}, {"item_template", "npc_spellclick_spells"})
+        self.assertEqual(usage["quests"][0]["questId"], 55)
+        self.assertEqual(context["sourceDiagnostics"]["missingSpellclickSpellIds"], [128])
 
     def test_vendor_references_keep_original_sellers_and_allow_reference_only_lists(self):
         rows = [{"entry": 500, "item": 1}, {"entry": 10, "item": -500}, {"entry": 20, "item": -10}]

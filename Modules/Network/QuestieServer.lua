@@ -2,7 +2,7 @@
 local QuestieServer = QuestieLoader:CreateModule("QuestieServer")
 local Integrations = QuestieLoader:ImportModule("QuestieServerIntegrations")
 
-local PREFIX, PROTOCOL_VERSION = "QSTSVR", "20"
+local PREFIX, PROTOCOL_VERSION = "QSTSVR", "21"
 
 -- Shared with the correction generators. Decisions apply to the current area,
 -- never to every location in these zones. Keep the module's profiles in sync.
@@ -29,6 +29,7 @@ local function PhaseRegion(map, area, zone)
     return (phaseAreas[map] and phaseAreas[map][area]) or (phaseZones[map] and phaseZones[map][zone])
 end
 local frame, snapshot, assembly, watchToken, pendingUntil, lastReplyAt
+local catalog
 local patrol, patrolAssembly
 local patrolLastToken, patrolLastSequence
 local Patrol = QuestieLoader:ImportModule("QuestieServerPatrol")
@@ -36,10 +37,12 @@ local serverInfo, infoReceived
 local snapshotToken, snapshotSequence, pendingRenewal
 local forceSnapshot, subscriptionsDirty = false, false
 local iccContextPending = false
+local questStateCache
 local phaseContextPending = false
 local giverContextPending = false
 local lastRequestAt = -2
 local snapshotCount, heartbeatCount = 0, 0
+local catalogCount, catalogReuseCount = 0, 0
 local requestSequence, lastSequence, nextRequestAt = 0, 0, 0
 local nextPreferenceCheck, previousPreferences = 0, nil
 local subscriptions = {}
@@ -92,8 +95,35 @@ local function Integer(value, maximum)
     return number
 end
 
+local function CatalogId(value)
+    return value and #value == 64 and not value:find("[^0-9A-F]")
+end
+
+local sharedFields = {"events", "ui", "poolQuests", "disabledQuests", "wintergraspQuests",
+    "wintergrasp", "resets", "scourge", "kaluakReported", "kaluakFinished"}
+local sharedCapabilities = {"EVENTS", "VALUES", "SCOURGE", "QUELDANAS", "KALUAK", "HEARTBEAT",
+    "QUESTPOOLS", "WINTERGRASP", "RESETS", "PATROLS", "QUESTDISABLES"}
+local sharedProperties = {QUEST_RESETS = true, SC_ACTIVE = true, KA_FINISHED = true, WG_STATE = true}
+local function SharedRow(row)
+    local kind, property = row:match("^([^:]+):([^:]+)")
+    return kind == "E" or kind == "Q" or kind == "D" or kind == "R" or kind == "U"
+        or (kind == "P" and sharedProperties[property] == true)
+end
+
+local function CopySharedState(source, target)
+    for _, key in ipairs(sharedFields) do target[key] = source[key] end
+end
+
 local function Fresh()
     return snapshot and GetTime() - lastReplyAt < 30
+end
+
+local function CatalogMatches(id, caps)
+    if not Fresh() or not catalog or catalog.id ~= id then return false end
+    for _, name in ipairs(sharedCapabilities) do
+        if (caps[name] == true) ~= (catalog.caps[name] == true) then return false end
+    end
+    return true
 end
 
 function QuestieServer:HasCapability(capability)
@@ -195,6 +225,7 @@ local function HandlePatrol(fields)
             end
             if result.count ~= batch.rowCount then return end
             patrolLastToken, patrolLastSequence, patrol = watchToken, sequence, result
+            Patrol.needsUpdate = true
         end
     end
 end
@@ -337,6 +368,35 @@ function QuestieServer:GetQuestgiverStateKey()
     return table.concat(ids, ",")
 end
 
+function QuestieServer:GetQuestgiverStateKeys()
+    local keys = {}
+    if not Fresh() then return keys end
+    if snapshot.caps.QUESTGIVERTEMPLATES then
+        for npcId in pairs(snapshot.giverTemplates) do keys[npcId] = {"N"} end
+    end
+    if not giverContextPending and snapshot.caps.QUESTGIVERS then
+        local context = "G:" .. snapshot.giverMap .. ":" .. snapshot.giverZone
+        local negative = {}
+        for _, unit in pairs(snapshot.giverUnits) do
+            if not unit.active then negative[unit.entry] = true end
+        end
+        for npcId, spawns in pairs(snapshot.giverSpawns) do
+            local parts = keys[npcId] or {}
+            parts[#parts + 1] = context
+            if negative[npcId] then parts[#parts + 1] = "U:0" end
+            for spawnId, active in pairs(spawns) do
+                parts[#parts + 1] = spawnId .. ":" .. (active and "1" or "0")
+            end
+            keys[npcId] = parts
+        end
+    end
+    for npcId, parts in pairs(keys) do
+        table.sort(parts)
+        keys[npcId] = table.concat(parts, ",")
+    end
+    return keys
+end
+
 ---@return boolean|nil false means the loaded server template lacks the questgiver flag.
 function QuestieServer:GetNPCQuestgiverTemplateState(npcId)
     if not self:HasCapability("QUESTGIVERTEMPLATES") then return nil end
@@ -416,10 +476,23 @@ function QuestieServer:GetPhaseVisibilityKey()
     local context = self:GetPhaseContext()
     if not self:GetPhaseRegion(context) then return "unknown" end
     local parts = {tostring(context.map), tostring(context.area), tostring(context.zone), tostring(context.mask)}
+    local visibility = snapshot.phaseVisibility[context.area] or {}
     for _, mask in ipairs(phaseMasks) do
-        parts[#parts + 1] = tostring(self:GetSpawnPhaseVisibility(context.map, context.area, mask))
+        parts[#parts + 1] = tostring(visibility[mask])
     end
     return table.concat(parts, ":")
+end
+
+function QuestieServer:GetPhaseVisibilityState()
+    local context = self:GetPhaseContext()
+    if not self:GetPhaseRegion(context) then return nil end
+    local state = {map = context.map, area = context.area, hidden = {}}
+    for mask, visible in pairs(snapshot.phaseVisibility[context.area] or {}) do
+        if visible == false then
+            state.hidden[mask] = true
+        end
+    end
+    return state
 end
 
 ---@return boolean|nil Server visibility decision, or nil outside the supported region.
@@ -483,8 +556,7 @@ end
 
 -- Combine independent live gates. A selected quest cannot bypass a faction gate,
 -- raid-instance gate or inactive direct pool membership.
-function QuestieServer:GetQuestAvailabilityState(questId)
-    if not Fresh() then return nil end
+local function QuestAvailabilityState(questId)
     local caps = snapshot.caps
     if caps.QUESTDISABLES and snapshot.disabledQuests[questId] then return false end
     if caps.QUESTCONDITIONS and snapshot.conditionQuests[questId] then return false end
@@ -502,17 +574,62 @@ function QuestieServer:GetQuestAvailabilityState(questId)
     return nil
 end
 
-function QuestieServer:GetStateControlledQuests()
-    local pool, wintergrasp, icc = self:GetPooledQuests(), self:GetWintergraspQuests(), self:GetICCQuests()
-    local disabled, conditions = self:GetDisabledQuests(), self:GetConditionRestrictedQuests()
-    if not pool and not wintergrasp and not icc and not disabled and not conditions then return nil end
+function QuestieServer:GetQuestAvailabilityState(questId)
+    if not Fresh() then return nil end
+    return QuestAvailabilityState(questId)
+end
+
+local function Nonempty(members)
+    return members and next(members) and members or nil
+end
+
+local function QuestStates()
+    if not Fresh() then questStateCache = nil; return nil end
+    local caps = snapshot.caps
+    local wintergrasp = caps.WINTERGRASP and snapshot.wintergrasp.loaded
+    local icc = caps.ICC and not iccContextPending and snapshot.icc.loaded and snapshot.icc.inside
+    if not (caps.QUESTPOOLS or caps.QUESTDISABLES or caps.QUESTCONDITIONS or wintergrasp or icc) then
+        questStateCache = nil
+        return nil
+    end
+    local pool = Nonempty(caps.QUESTPOOLS and snapshot.poolQuests)
+    local disabled = Nonempty(caps.QUESTDISABLES and snapshot.disabledQuests)
+    local conditions = Nonempty(caps.QUESTCONDITIONS and snapshot.conditionQuests)
+    wintergrasp = Nonempty(wintergrasp and snapshot.wintergraspQuests)
+    icc = Nonempty(icc and snapshot.iccQuests)
+    -- Reused catalogs retain their table identities across unrelated private updates.
+    if questStateCache and questStateCache.pool == pool and questStateCache.wintergrasp == wintergrasp
+        and questStateCache.icc == icc and questStateCache.disabled == disabled and questStateCache.conditions == conditions then
+        return questStateCache
+    end
     local ids, seen = {}, {}
-    for _, members in ipairs({pool or {}, wintergrasp or {}, icc or {}, disabled or {}, conditions or {}}) do
-        for _, id in ipairs(members) do
+    local function add(members)
+        for id in pairs(members or {}) do
             if not seen[id] then ids[#ids + 1], seen[id] = id, true end
         end
     end
+    add(pool); add(wintergrasp); add(icc); add(disabled); add(conditions)
     table.sort(ids)
+    local parts = {}
+    for _, id in ipairs(ids) do
+        local quest = pool and pool[id]
+        parts[#parts + 1] = id .. ":" .. tostring(quest and quest.pool or nil) .. ":" .. tostring(QuestAvailabilityState(id))
+    end
+    questStateCache = {pool = pool, wintergrasp = wintergrasp, icc = icc, disabled = disabled,
+        conditions = conditions, ids = ids, key = table.concat(parts, ";")}
+    return questStateCache
+end
+
+function QuestieServer:GetQuestStateKey()
+    local state = QuestStates()
+    return state and state.key or "unknown"
+end
+
+function QuestieServer:GetStateControlledQuests()
+    local state = QuestStates()
+    if not state then return nil end
+    local ids = {}
+    for index, id in ipairs(state.ids) do ids[index] = id end
     return ids
 end
 
@@ -541,7 +658,10 @@ local function Request()
     local ids = {}
     for id in pairs(subscriptions) do ids[#ids + 1] = id end
     table.sort(ids)
-    SendAddonMessage(PREFIX, "WATCH~" .. PROTOCOL_VERSION .. "~" .. watchToken .. "~" .. table.concat(ids, ","), "WHISPER", name)
+    local request = "WATCH~" .. PROTOCOL_VERSION .. "~" .. watchToken .. "~" .. table.concat(ids, ",") .. "~"
+    local known = Fresh() and catalog and catalog.id or "-"
+    if #request + #known > 240 then known = "-" end
+    SendAddonMessage(PREFIX, request .. known, "WHISPER", name)
 end
 
 local function ParseRows(batch)
@@ -550,9 +670,15 @@ local function ParseRows(batch)
         phaseVisibility = {}, reputationFactions = {}, conditionQuests = {}}
     local count, reputationFactionCount, giverCount, templateCount = 0, 0, 0, 0
     local conditionCount = 0
+    if batch.reuseCatalog then CopySharedState(catalog.state, result) end
+    local common = {}
+    CopySharedState(result, common)
+    local wireCount = 0
     for index = 1, batch.partCount do
         if not batch.parts[index] then return nil end
         for _, row in ipairs(Split(batch.parts[index], ";")) do
+            wireCount = wireCount + 1
+            if SharedRow(row) ~= (wireCount <= batch.catalogRows) then return nil end
             count = count + 1
             local fields = Split(row, ":")
             local kind, id = fields[1], Integer(fields[2], 4294967295)
@@ -706,9 +832,11 @@ local function ParseRows(batch)
             else
                 return nil
             end
+            if wireCount == batch.catalogRows then CopySharedState(result, common) end
         end
     end
     if count ~= batch.rowCount then return nil end
+    batch.catalogState = common
     if result.caps.QUESTCONDITIONS and result.conditionCount ~= conditionCount then return nil end
     if result.caps.QUESTXP and not result.questXP then return nil end
     if result.caps.QUESTMONEY and not result.questMoney then return nil end
@@ -776,8 +904,11 @@ local function HandleInfo(fields)
     end
     infoReceived = true
     serverInfo = {protocol = fields[4], version = fields[5], revision = fields[6], status = status, receivedAt = now}
-    if status ~= "READY" then
+    if status == "READY" then
+        pendingUntil = assembly and assembly.untilTime or lastRequestAt + 30
+    else
         local hadSnapshot = snapshot ~= nil
+        catalog = nil
         snapshot, lastReplyAt, snapshotToken, snapshotSequence = nil, nil, nil, nil
         pendingUntil, pendingRenewal, assembly, watchToken = nil, false, nil, nil
         forceSnapshot, nextRequestAt = true, now + 60
@@ -811,13 +942,24 @@ local function HandleMessage(message, distribution, sender)
         lastSequence, lastReplyAt = sequence, now
         heartbeatCount = heartbeatCount + 1
         if pendingRenewal then pendingUntil, pendingRenewal = nil, false end
-    elseif fields[1] == "BEGIN" and #fields == 7 then
+    elseif fields[1] == "BEGIN" and #fields == 9 then
+        if pendingUntil and now > pendingUntil then return end
         if assembly and sequence <= assembly.sequence then return end
         local rows, parts = Integer(fields[6], 4096), Integer(fields[7], 1024)
         if not rows or not parts or (rows == 0) ~= (parts == 0) or parts > rows then return end
         local caps = ParseCapabilities(fields[5])
         if not caps then return end
-        assembly = {sequence = sequence, caps = caps, rowCount = rows, partCount = parts, parts = {}, untilTime = now + 5}
+        local id, reuse = fields[8], fields[9] == "R"
+        if not CatalogId(id) then return end
+        local shared = reuse and 0 or Integer(fields[9], rows)
+        if not shared then return end
+        if reuse and not CatalogMatches(id, caps) then
+            forceSnapshot, pendingUntil, pendingRenewal, assembly, nextRequestAt = true, nil, false, nil, 0
+            return
+        end
+        if rows + (reuse and catalog.rowCount or 0) > 4096 then return end
+        assembly = {sequence = sequence, caps = caps, rowCount = rows, partCount = parts, parts = {}, untilTime = now + 5, catalogId = id, catalogRows = shared, reuseCatalog = reuse}
+        if pendingUntil then pendingUntil = assembly.untilTime end
     elseif assembly and sequence == assembly.sequence and now <= assembly.untilTime then
         if fields[1] == "PART" and #fields == 6 then
             local index = Integer(fields[5], assembly.partCount)
@@ -827,9 +969,21 @@ local function HandleMessage(message, distribution, sender)
             end
             assembly.parts[index] = fields[6]
         elseif fields[1] == "END" and #fields == 4 then
-            local result = ParseRows(assembly)
+            local batch = assembly
+            if batch.reuseCatalog and not CatalogMatches(batch.catalogId, batch.caps) then
+                forceSnapshot, pendingUntil, pendingRenewal, assembly, nextRequestAt = true, nil, false, nil, 0
+                return
+            end
+            local result = ParseRows(batch)
             assembly = nil
             if not result then return end
+            if not batch.reuseCatalog then
+                catalog = {id = batch.catalogId, rowCount = batch.catalogRows, state = batch.catalogState, caps = batch.caps}
+                catalogCount = catalogCount + 1
+            else
+                catalogReuseCount = catalogReuseCount + 1
+            end
+            result.wireRows, result.wireParts = batch.rowCount, batch.partCount
             snapshot, lastSequence, lastReplyAt = result, sequence, now
             snapshot.receivedAt = now
             iccContextPending = false
@@ -838,7 +992,7 @@ local function HandleMessage(message, distribution, sender)
             snapshotToken, snapshotSequence = watchToken, sequence
             snapshotCount = snapshotCount + 1
             pendingUntil, pendingRenewal, forceSnapshot = nil, false, false
-            nextRequestAt = math.min(nextRequestAt, now + 20)
+            nextRequestAt = math.min(nextRequestAt, now + 20, lastRequestAt + 20)
             Integrations:Refresh()
         end
     end
@@ -873,6 +1027,7 @@ function QuestieServer:PrintStatus(poolId)
     table.sort(caps)
     Questie:Print("[Server bridge] Live state (" .. math.floor(GetTime() - lastReplyAt) .. "s): " .. table.concat(caps, ", "))
     Questie:Print("[Server bridge] Updates this session: " .. snapshotCount .. " snapshots, " .. heartbeatCount .. " heartbeats")
+    Questie:Print("[Server bridge] Catalogs: " .. catalogCount .. " full, " .. catalogReuseCount .. " reused; last update: " .. snapshot.wireRows .. " rows, " .. snapshot.wireParts .. " parts")
     local disabled = self:GetDisabledQuests()
     if disabled then Questie:Print("[Server bridge] Disabled quests: " .. #disabled) end
     if self:HasCapability("QUESTGIVERS") then
@@ -1136,6 +1291,7 @@ function QuestieServer:Initialize()
         if assembly and now > assembly.untilTime then assembly = nil end
         if patrolAssembly and now > patrolAssembly.untilTime then patrolAssembly = nil end
         if snapshot and not Fresh() then
+            catalog = nil
             snapshot, lastReplyAt, snapshotToken, snapshotSequence = nil, nil, nil, nil
             pendingUntil, pendingRenewal, assembly = nil, false, nil
             forceSnapshot, nextRequestAt = true, 0
@@ -1149,7 +1305,7 @@ function QuestieServer:Initialize()
             if previousPreferences and previousPreferences ~= preferences then Integrations:Refresh() end
             previousPreferences = preferences
         end
-        if Patrol.Update then Patrol:Update(now) end
+        if Patrol.needsUpdate and now >= (Patrol.nextCheck or 0) and Patrol.Update then Patrol:Update(now) end
         Request()
     end)
     SLASH_QUESTIESERVER1 = "/qserver"

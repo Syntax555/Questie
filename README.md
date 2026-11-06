@@ -56,7 +56,7 @@ client coverage: objective pins, tooltips, turn-in, abandonment and departure
 cleanup still need in-game validation. See the
 [integration guide](https://github.com/Syntax555/mod-playerbots-portable/blob/main/docs/questie-playerbots.md).
 
-The server-state integration requires matching protocol 20 addon and Questie
+The server-state integration requires matching protocol 21 addon and Questie
 Bridge builds. `/qserver` reports mismatched versions and restores static
 behavior. Server-reported quest-condition restrictions apply to quest availability;
 `/qserver conditions` lists them. Global questgiver-template restrictions apply

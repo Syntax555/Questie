@@ -28,6 +28,8 @@ Pillow and StormLib.
 
 ## Regression checks before pushing
 
+Run these checks after generation and all final edits, against the files you will commit.
+
 ```powershell
 $env:QUESTIE_TEST_LUA = "C:\path\to\lua52\lua.exe"
 python -B tools/run_regressions.py
@@ -90,6 +92,15 @@ Invoke-QuestiePython tools/generate_acore_item_base.py generate `
 
 ### 2. NPC base
 
+Registered single-map motion transports use `TaxiPathNode.dbc` to project passenger offsets into
+world anchors. Routes are included for NPC quest starters and turn-ins.
+Passenger spawn anchors retain their deck offsets; waypoint lines use the shared
+transport centerline.
+The gunships retain their reviewed Icecrown display zone. Other transport points
+require an unambiguous map projection.
+Teleporting, ambiguous, or unverified transport geometry remains unmapped.
+Explicit quest-bound escort paths are excluded from ordinary NPC patrol lines.
+
 ```powershell
 Invoke-QuestiePython tools/generate_acore_npc_base.py generate `
     --acore-source $acoreSource `
@@ -110,6 +121,12 @@ Invoke-QuestiePython tools/generate_acore_object_base.py generate `
 ```
 
 ### 4. Quest base
+
+Quest event guides use source-proven escort credit points, follower destinations,
+area triggers, and proximity events. Interactions use existing NPC or object
+locations when a fixed endpoint is unsuitable. Reviewed complex scripts require
+matching behavior fingerprints; changed or ambiguous cases remain in guide
+coverage without copying legacy coordinates. Eligibility calculations are unchanged.
 
 ```powershell
 Invoke-QuestiePython tools/generate_acore_quest_base.py generate `
